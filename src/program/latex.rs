@@ -1,6 +1,7 @@
 use std::fmt::format;
 
 use crate::Program;
+use latex::{print, Document, DocumentClass, Element, Section, Align};
 
 #[derive(Debug)]
 /// Settings to control the layout and rendering of circuits.
@@ -30,12 +31,12 @@ pub struct DiagramSettings {
 
 impl Default for DiagramSettings {
     fn default() -> Self {
-        Self { 
-            texify_numerical_constants: true, 
-            impute_missing_qubits: false, 
-            label_qubit_lines: true, 
-            abbreviate_controlled_rotations: false, 
-            qubit_line_open_wire_length: 1, 
+        Self {
+            texify_numerical_constants: true,
+            impute_missing_qubits: false,
+            label_qubit_lines: true,
+            abbreviate_controlled_rotations: false,
+            qubit_line_open_wire_length: 1,
             right_align_terminal_measurements: true,
         }
     }
@@ -68,28 +69,59 @@ impl TikzOperator {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum LatexGenError {
+pub enum LatexError {
     // TODO: Add variants for each error type using `thiserror` crate to return detailed Result::Err.
     #[error("This is an error on {qubit_index}.")]
-    SomeError{qubit_index: u32},
+    SomeError { qubit_index: u32 },
 }
 
-pub trait ToLatex {
-    fn to_latex(self, diagram_settings: DiagramSettings) -> Result<String, LatexGenError>;
+pub trait Latex {
+    fn to_latex(self, diagram_settings: DiagramSettings) -> Result<String, LatexError>;
+    fn build_1q_unitary(self);
 }
 
-impl ToLatex for Program {
-    fn to_latex(self, diagram_settings: DiagramSettings) -> Result<String, LatexGenError> {
+impl Latex for Program {
+    fn to_latex(self, diagram_settings: DiagramSettings) -> Result<String, LatexError> {
+        // Using the latex crate to build the LaTeX document object..
+        // Set the header
+        let mut doc = Document::new(DocumentClass::Other("standalone".to_string()));
+        doc.push(Element::Input("".to_string()));
+
+        // doc.preamble.use_package("tikz");
+
+        // Packages 
+        // r"\documentclass[convert={density=300,outext=.png}]{standalone}",
+        // r"\usepackage[margin=1in]{geometry}",
+        // r"\usepackage{tikz}",
+        // r"\usetikzlibrary{quantikz}",
+
+        // Initialization
+        // r"\begin{document}", r"\begin{tikzcd}"
+
+
+        // Build the body
+        
+        
+        // Set the footer
+        // "\\end{tikzcd}\n\\end{document}"
+
+        println!("{}", print(&doc).unwrap());
+
         // TODO: Generate the Program LaTeX.
         let latex = "";
-
         Ok(latex.to_string())
+    }
+
+
+    // TODO: Implement build_1q_unitary function that builds single qubit X and Y gates.
+    fn build_1q_unitary(self) {
+        
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{DiagramSettings, ToLatex};
+    use super::{DiagramSettings, Latex};
     use crate::Program;
     use std::str::FromStr;
 
