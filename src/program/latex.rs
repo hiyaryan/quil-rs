@@ -41,6 +41,22 @@ impl Default for DiagramSettings {
     }
 }
 
+pub struct LaTeX {
+    header: String,
+    body: String,
+    footer: String,
+}
+
+impl LaTeX {
+    pub fn new() -> Self {
+        Self {
+            header: todo!(),
+            body: todo!(),
+            footer: todo!(),
+        }
+    } 
+}
+
 pub enum TikzOperator {
     TikzLeftKet(u32),
     TikzControl(i32),
@@ -89,9 +105,8 @@ impl ToLatex for Program {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiagramSettings, ToLatex};
-    use crate::Program;
     use std::str::FromStr;
+    use crate::{program::latex::{DiagramSettings, ToLatex}, Program};
 
     /// Take an instruction and return the LaTeX using the to_latex method.
     pub fn get_latex(instructions: &str) -> String {
@@ -101,12 +116,59 @@ mod tests {
             .expect("LaTeX should generate without error.")
     }
 
-    #[test]
-    /// Test functionality of to_latex using default settings.
-    fn test_to_latex() {
-        let program = Program::from_str("").expect("");
-        program.to_latex(DiagramSettings::default()).expect("");
-    }
+    mod latex {
+        use std::str::FromStr;
+        use crate::{program::latex::{DiagramSettings, ToLatex}, Program};
+
+        #[test]
+        /// Test functionality of to_latex using default settings.
+        fn test_to_latex() {
+            let program = Program::from_str("").expect("");
+            program.to_latex(DiagramSettings::default()).expect("");
+        }
+
+        /// The header should include the type of document, any external packages and libraries, and the begin line 
+        /// indicating where the body of the LaTeX begins. This information is predefined and is tested against the
+        /// hardcoded values below.
+        #[test]
+        fn test_latex_header() {
+                // \documentclass[convert={density=300,outext=.png}]{standalone}
+                // \usepackage[margin=1in]{geometry}
+                // \usepackage{tikz}
+                // \usetikzlibrary{quantikz}
+                // \begin{document}
+                // \begin{tikzcd}
+
+                let header = String::from("
+                    \\documentclass[convert={density=300,outext=.png}]{standalone}
+                    \\usepackage[margin=1in]{geometry}
+                    \\usepackage{tikz}
+                    \\usetikzlibrary{quantikz}
+                    \\begin{document}
+                    \\begin{tikzcd}
+                ");
+                // header.push_str("\\usepackage[margin=1in]{geometry}\n");
+                // header.push_str("\\usepackage{tikz}\n");
+                // header.push_str("\\usetikzlibrary{quantikz}\n");
+                // header.push_str("\\begin{document}\n");
+                // header.push_str("\\begin{tikzcd}\n");
+
+                println!("{header}")
+                // packages = (
+                //     r"\documentclass[convert={density=300,outext=.png}]{standalone}",
+                //     r"\usepackage[margin=1in]{geometry}",
+                //     r"\usepackage{tikz}",
+                //     r"\usetikzlibrary{quantikz}",
+                // )
+                // init = (r"\begin{document}", r"\begin{tikzcd}")
+        }
+
+        ///
+        #[test]
+        fn test_latex_footer() {
+            // "\\end{tikzcd}\n\\end{document}"
+        }
+}   
 
     mod gates {
         use crate::program::latex::tests::get_latex;
