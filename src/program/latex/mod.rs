@@ -27,6 +27,7 @@ use std::fmt::{format, Display};
 
 use crate::Program;
 use crate::instruction;
+use crate::instruction::Qubit;
 
 /// Available commands used for building circuits with the same names taken 
 /// from the Quantikz documentation for easy reference. LaTeX string denoted 
@@ -109,6 +110,8 @@ pub struct Settings {
     qubit_line_open_wire_length: u32,
     /// Align measurement operations to appear at the end of the diagram.
     right_align_terminal_measurements: bool,
+    /// Display Fixed qubits in increasing numerical order.
+    preserve_fixed_order: bool,
 }
 
 impl Default for Settings {
@@ -127,6 +130,8 @@ impl Default for Settings {
             qubit_line_open_wire_length: 1, 
             /// false: include Meter in the current column.
             right_align_terminal_measurements: true,
+            /// false: preserve positional order 
+            preserve_fixed_order: true,
         }
     }
 }
@@ -135,6 +140,16 @@ impl Default for Settings {
 impl Settings {
     fn label_qubit_lines(&self, key: String) -> String {
         Command::get_command(Command::Lstick(key.to_string()))
+    }
+
+    /// Sorts the order of the qubits as they are rendered on the Diagram.
+    /// 
+    /// # Arguments
+    /// `mut self` - expose order field to sort
+    fn preserve_fixed_order(&self, order: &mut Vec<String>) {
+        order.sort();
+
+        // TODO: Calculate target qubit for ctrl{targ}
     }
 }
 
@@ -187,6 +202,8 @@ struct Diagram {
     settings: Settings,
     /// preserves the order of wires through indexing the circuit keys
     order: Vec<String>,
+    /// n-1 columns for all wires
+    column: u32,
     /// a HashMap of wires with the name of the wire as the key
     circuit: HashMap<String, Box<Wire>>,
 }
@@ -198,13 +215,37 @@ impl Diagram {
     /// 
     /// # Arguments
     /// `&usize position` - the index of the qubit in &self.order
-    fn set_ctrl_targ(&self, position: &usize) -> String {
-        if *position == 0 {
-            // the target qubit lies on the next wire 1
-            Command::get_command(Command::Ctrl(String::from("1")))
-        } else {
-            Command::get_command(Command::Targ)
+    fn set_ctrl_targ(&mut self, qubits: &Vec<Qubit>) {
+        // cargo test --package quil-rs --lib --all-features -- program::latex::tests::test_to_latex --exact --nocapture
+
+        // for each qubit in a single line of instructions
+        for i in 0..qubits.len() {
+            match self.circuit.get_mut(&qubits[i].to_string()) {
+                Some(wire) => {
+                    // the first qubit is the control
+                    if i == 0 {
+                        wire.ctrl.insert(self.column.clone(), true);
+                        wire.targ.insert(self.column.clone(), false);
+                    // all other qubits are the target
+                    } else {
+                        wire.ctrl.insert(self.column.clone(), false);
+                        wire.targ.insert(self.column.clone(), true);
+                    }
+
+                    println!("{:?}", wire);
+                },
+                None => (),
+            }
         }
+
+        // if *position == 0 {
+        //     // the target qubit lies on the next wire 1
+        //     Command::get_command(Command::Ctrl(String::from("1")))
+        // } else {
+        //     Command::get_command(Command::Targ)
+        // }
+
+        
     }
 
     /// Takes a new or existing wire and adds or updates it using the name
@@ -222,24 +263,20 @@ impl Diagram {
             // wire found, push to existing wire
             Some(wire_in_circuit) => {
                 // indicate a new item to be added by incrementing column
-                wire_in_circuit.column += 1;
+                self.column += 1;
 
-                // if wire contains gates to add
-                if !wire.gates.is_empty() {
-                    if let Some(gate) = wire.gates.get(&0) {
-                        // add gates to wire in circuit
-                        wire_in_circuit.gates.insert(wire_in_circuit.column, gate.to_string());
+                if let Some(gate) = wire.gates.get(&0) {
+                    // add gates to wire in circuit
+                    wire_in_circuit.gates.insert(self.column, gate.to_string());
                     }
-                }
-
             },
             // no wire found, preserve insertion order and insert new wire
             None => {
                 self.order.push(wire.name.clone());
-                self.circuit.insert(wire.name.clone(), Box::new(wire));
+                self.circuit.insert(wire.name.clone(), Box::new(wire.clone()));
             },
         }
-        
+
         // println!("{:?}", wire);
     }
 }
@@ -260,20 +297,24 @@ impl Display for Diagram {
                 line.push_str(&self.settings.label_qubit_lines(self.order[i].clone()));
             }
 
+
+
+            // TODO: Change the way you identify what wire is a control and what is a target at column x row. Below should happen outside fof this format block. Maybe have Diagram add a flag to the Wire to indicate that at this point the Wire is a control or target. You should be able to sort the order and it not change the instruction positioning. Order should only be keeping track of the hashmap order or wires but with this in this block it seems to be keeping track of the positioning of the qubit in the instruction which is creating some confusion.
+
             // convert each attribute other than the default to string.
             if let Some(wire) = self.circuit.get(&self.order[i]) {
-                for c in 0..=wire.column {
+                for c in 0..=self.column {
                     if let Some(gate) = wire.gates.get(&c) {
                         // println!("GATE: {gate}");
 
                         line.push_str(" & ");
 
                         // determine if target or control
-                        if gate == "CNOT" {
-                            line.push_str(&self.set_ctrl_targ(&i));
-                        } else {
+                        // if gate == "CNOT" {
+                        //     line.push_str(&self.set_ctrl_targ(&i));
+                        // } else {
                         line.push_str(&Command::get_command(Command::Gate(gate.to_string())));
-                        }
+                        // }
                     }
                 }
             }
@@ -303,14 +344,16 @@ impl Display for Diagram {
 /// which determines the placement of the element on the circuit. Each column 
 /// can hold only one element, therefore, each encoded index is unique between 
 /// all of the attributes. Using this property, a String can be generated. 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Wire {
-    /// abstract attribute representing total-1 elements on the circuit 
-    column: u32,
     /// a wire, ket(qubit) placed using the Lstick or Rstick commands
     name: String,
     /// gate element(s) placed at column_u32 on wire using the Gate command
     gates: HashMap<u32, String>,
+    /// defines at which column the qubit is a control
+    ctrl: HashMap<u32, bool>,
+    /// defines at which column the qubit is a target
+    targ: HashMap<u32, bool>,
     /// a column_u32 that contains nothing placed using the Qw command  
     do_nothing: Vec<u32>,
 }
@@ -318,9 +361,10 @@ struct Wire {
 impl Default for Wire {
     fn default() -> Self {
         Self { 
-            column: 0,
             name: String::from(""), 
-            gates: HashMap::new(), 
+            gates: HashMap::new(),
+            ctrl: HashMap::new(),
+            targ: HashMap::new(),
             do_nothing: vec![],
         }
     }
@@ -350,7 +394,7 @@ impl Latex for Program {
         // X 0, Y 1, 
 
         // store circuit strings
-        let mut diagram = Diagram {settings, order: vec![], circuit: HashMap::new()};
+        let mut diagram = Diagram {settings, order: vec![], column: 0, circuit: HashMap::new()};
 
         for instruction in instructions {
             match instruction {
@@ -359,20 +403,25 @@ impl Latex for Program {
                     // println!("GATE: {:?}", gate.name);
 
                     // for each qubit in a single gate instruction
-                    for qubit in gate.qubits {
+                    // TODO: Change to FIXED
+                    for qubit in &gate.qubits {
                         // create a new wire
                         let mut wire = Wire::default();
 
                         // set name of wire for any qubit variant as String
-                        wire.name = qubit.to_string();
+                        // TODO: Change to int
+                        wire.name = qubit.to_string().clone();
 
-                        // add the gate to the wire at column 0
-                        wire.gates.insert(wire.column, gate.name.clone());
+                        // add the gate to the next column on the wire
+                        wire.gates.insert(diagram.column, gate.name.clone());
 
                         // push wire to diagram circuit
                         diagram.push_wire(wire);
+                    }
 
-                        // println!("WIRE: {:?}", wire);
+                    if gate.name == "CNOT" {
+                        // determine ctrl and targ qubits at the current column
+                        diagram.set_ctrl_targ(&gate.qubits);
                     }
                 },
                 // do nothing for all other instructions
@@ -396,26 +445,26 @@ mod tests {
 
     /// Helper function takes instructions and return the LaTeX using the 
     /// Latex::to_latex method.
-    pub fn get_latex(instructions: &str) -> String {
+    pub fn get_latex(instructions: &str, settings: Settings) -> String {
         let program = Program::from_str(instructions).expect("program `{instructions}` should be returned");
         program
-            .to_latex(Settings::default())
+            .to_latex(settings)
             .expect("LaTeX should generate for program `{instructions}`")
     }
 
     #[test]
     /// Test functionality of to_latex using default settings.
     fn test_to_latex() {
-        let program = Program::from_str("X 0\nY 1").expect("");
+        let program = Program::from_str("CNOT 0 1\nCNOT 2 3\nCNOT 1 0").expect("");
         program.to_latex(Settings::default()).expect("");
     }
 
     mod document {
-        use crate::program::latex::{Document, tests::get_latex};
+        use crate::program::latex::{Document, tests::get_latex, Settings};
 
         #[test]
         fn test_template() {
-            insta::assert_snapshot!(get_latex(""));
+            insta::assert_snapshot!(get_latex("", Settings::default()));
         }
 
         #[test]
@@ -438,36 +487,42 @@ mod tests {
     }
 
     mod gates {
-        use crate::program::latex::tests::get_latex;
+        use crate::program::latex::{tests::get_latex, Settings};
 
         #[test]
         fn test_gate_x() {
-            insta::assert_snapshot!(get_latex("X 0"));
+            insta::assert_snapshot!(get_latex("X 0", Settings::default()));
         }
 
         #[test]
         fn test_gate_y() {
-            insta::assert_snapshot!(get_latex("Y 1"));
+            insta::assert_snapshot!(get_latex("Y 1", Settings::default()));
         }
 
         #[test]
         fn test_gates_x_and_y_single_qubit() {
-            insta::assert_snapshot!(get_latex("X 0\nY 0"));
+            insta::assert_snapshot!(get_latex("X 0\nY 0", Settings::default()));
         }
 
         #[test]
         fn test_gates_x_and_y_two_qubits() {
-            insta::assert_snapshot!(get_latex("X 0\nY 1"));
+            insta::assert_snapshot!(get_latex("X 0\nY 1", Settings::default()));
         }
 
         #[test]
         fn test_gates_cnot_ctrl_0_targ_1() {
-            insta::assert_snapshot!(get_latex("CNOT 0 1"));
+            insta::assert_snapshot!(get_latex("CNOT 0 1", Settings::default()));
         }
 
         #[test]
         fn test_gates_cnot_ctrl_1_targ_0() {
-            insta::assert_snapshot!(get_latex("CNOT 1 0"));
+            let settings = Settings {preserve_fixed_order: false, ..Default::default()};
+            insta::assert_snapshot!(get_latex("CNOT 1 0", settings));
+        }
+
+        #[test]
+        fn test_gates_cnot_ctrl_1_targ_0_fixed_order() {
+            insta::assert_snapshot!(get_latex("CNOT 1 0", Settings::default()));
         }
 
         // #[test]
