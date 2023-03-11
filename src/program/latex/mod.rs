@@ -102,6 +102,7 @@ pub enum Symbol {
     Phi,
     Pi,
     Text(String),
+    T,
 }
 
 impl Symbol {
@@ -138,6 +139,7 @@ impl Symbol {
             Parameter::Symbol(Symbol::Phi) => r"\phi".to_string(),
             Parameter::Symbol(Symbol::Pi) => r"\pi".to_string(),
             Parameter::Symbol(Symbol::Text(text)) => format(format_args!(r#"\text{{{text}}}"#)),
+            _ => "".to_string(),
         }
     }
 }
@@ -165,7 +167,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             /// false: pi is π.
-            texify_numerical_constants: true,
+            texify_numerical_constants: false,
             /// true: `CNOT 0 2` would have three qubit lines: 0, 1, 2.
             impute_missing_qubits: false,
             /// false: remove Lstick/Rstick from latex.
@@ -182,6 +184,28 @@ impl Default for Settings {
 
 // TODO: Implement functions to update the settings that allows the user customzie the rendering of the circuit.
 impl Settings {
+    /// Retrieves a gates parameters from Expression and matches them with its
+    /// symbolic definition which is then stored into wire at the specific
+    /// column.
+    pub fn texify_numerical_constants(param: &Expression, symbol: Symbol) -> String {
+        let text: String;
+
+        match param {
+            Expression::Address(mr) => {
+                text = mr.to_string();
+            }
+            Expression::Number(c) => {
+                text = c.re.to_string();
+            }
+            expression => text = expression.to_string(),
+        }
+
+        match symbol {
+            Symbol::Text(_) => Parameter::Symbol(Symbol::Text(text)),
+            _ => Parameter::Symbol(Symbol::match_symbol(text)),
+        }
+    }
+
     pub fn label_qubit_lines(&self, name: u64) -> String {
         Command::get_command(Command::Lstick(name.to_string()))
     }
@@ -634,28 +658,6 @@ impl Default for Wire {
     }
 }
 
-impl Wire {
-    /// Retrieves a gates parameters from Expression and matches them with its
-    /// symbolic definition which is then stored into wire at the specific
-    /// column.
-    pub fn set_param(&mut self, param: &Expression, column: u32) {
-        let text: String;
-
-        match param {
-            Expression::Address(mr) => {
-                text = mr.to_string();
-            }
-            Expression::Number(c) => {
-                text = c.re.to_string();
-            }
-            expression => text = expression.to_string(),
-        }
-
-        let param = vec![Parameter::Symbol(Symbol::match_symbol(text))];
-        self.parameters.insert(column, param);
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum LatexGenError {
     #[error("Tried to parse CNOT and found a control qubit without a target.")]
@@ -698,9 +700,22 @@ impl Latex for Program {
                                 // set parameters for phase gates
                                 if gate.name.contains("PHASE") {
                                     for param in &gate.parameters {
-                                        wire.set_param(param, diagram.column);
+                                        let modifier;
+                                        if diagram.settings.texify_numerical_constants {
+                                            modifier = Settings::texify_numerical_constants(
+                                                param,
+                                                Symbol::Text("".to_string()),
+                                            )
+                                        } else {
+                                            modifier = Settings::texify_numerical_constants(
+                                                param,
+                                                Symbol::T,
+                                            )
+                                        }
+
+                                        wire.modifiers.insert(diagram.column, modifier);
                                     }
-                                }
+                                }`
 
                                 // set modifers
                                 if !gate.modifiers.is_empty() {
